@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  pathwaydb-redis:
+    build:
+      context: .
+      dockerfile: cmd/redis-server/Dockerfile
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - ./data:/app/data
+    networks:
+      - pathwaydb-net
+
+  backend:
+    build:
+      context: .
+      dockerfile: ide/backend/Dockerfile
+    depends_on:
+      - pathwaydb-redis
+    ports:
+      - "${WEBSOCKET_PORT:-8081}:8081"
+    environment:
+      - REDIS_ADDR=pathwaydb-redis:6379
+      - WEBSOCKET_ADDR=:8081
+    networks:
+      - pathwaydb-net
+
+  frontend:
+    build:
+      context: .
+      dockerfile: ide/frontend/Dockerfile
+    depends_on:
+      - backend
+    ports:
+      - "${PORT:-3000}:80"
+    networks:
+      - pathwaydb-net
+
+networks:
+  pathwaydb-net:
+    driver: bridge

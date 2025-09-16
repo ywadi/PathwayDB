@@ -1,0 +1,26 @@
+# Git and OS-specific files
+.git
+.DS_Store
+
+# Local dependencies
+node_modules
+ide/frontend/node_modules
+
+# Local build artifacts
+build/
+dist/
+ide/frontend/build/
+
+# Local data and logs
+data/
+*.log
+*.pid
+*.seed
+
+# IDE and editor config
+.vscode/
+.idea/
+
+# Temp and backup files
+*.bak
+*~

@@ -14,8 +14,10 @@ export class RedisWebSocket {
   public onResponse: ((response: RedisResponse) => void) | null = null;
   public onError: ((error: string) => void) | null = null;
 
-  constructor(host: string = 'localhost', port: number = 8081) {
-    this.url = `ws://${host}:${port}/ws`;
+  constructor() {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    this.url = `${protocol}//${host}/ws`;
   }
 
   public connect(): Promise<void> {

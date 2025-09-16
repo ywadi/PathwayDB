@@ -21,51 +21,62 @@ if ! command -v go &> /dev/null; then
 fi
 
 # Install frontend dependencies if needed
-if [ ! -d "frontend/node_modules" ]; then
+if [ ! -d "ide/frontend/node_modules" ]; then
     echo "📦 Installing frontend dependencies..."
-    cd frontend
-    npm install
-    cd ..
+    (cd ide/frontend && npm install)
 fi
 
 # Install backend dependencies
 echo "📦 Installing backend dependencies..."
-cd backend
-go mod tidy
-cd ..
+(cd ide/backend && go mod tidy)
+
+# Set default ports if not provided by environment variables
+export REDIS_ADDR=${REDIS_ADDR:-":6379"}
+export WEBSOCKET_ADDR=${WEBSOCKET_ADDR:-":8081"}
+export PORT=${PORT:-"3000"}
+
+# Construct the full WebSocket URL for the frontend
+WEBSOCKET_HOST=$(echo $WEBSOCKET_ADDR | cut -d: -f1)
+if [ -z "$WEBSOCKET_HOST" ]; then
+    WEBSOCKET_HOST="localhost"
+fi
+WEBSOCKET_PORT_NUM=$(echo $WEBSOCKET_ADDR | cut -d: -f2)
+export REACT_APP_WEBSOCKET_URL="ws://${WEBSOCKET_HOST}:${WEBSOCKET_PORT_NUM}/ws"
+export REACT_APP_API_BASE_URL="http://${WEBSOCKET_HOST}:${WEBSOCKET_PORT_NUM}"
 
 # Start Redis server in background
 echo "🔴 Starting PathwayDB Redis server..."
-cd ..
-go run cmd/redis-server/main.go &
-REDIS_PID=$!
-cd ide
+if [ -n "$PROD" ]; then
+    ./cmd/redis-server/redis-server &
+else
+    go run cmd/redis-server/main.go &
+fi
 
 # Wait for Redis to start
 sleep 2
 
 # Start backend WebSocket bridge in background
 echo "🌐 Starting WebSocket bridge server..."
-cd backend
-go run main.go &
-BACKEND_PID=$!
-cd ..
+if [ -n "$PROD" ]; then
+    (cd ide/backend && ./backend-server) &
+else
+    (cd ide/backend && go run main.go) &
+fi
 
 # Wait for backend to start
 sleep 2
 
-# Start frontend development server
-echo "⚛️  Starting React development server..."
-cd frontend
-npm start &
-FRONTEND_PID=$!
-cd ..
+# Start frontend development server if not in production
+if [ -z "$PROD" ]; then
+    echo "⚛️  Starting React development server..."
+    (cd ide/frontend && npm start) &
+fi
 
 echo "✅ PathwayDB IDE is starting up!"
 echo ""
-echo "🔗 Access the IDE at: http://localhost:3000"
-echo "🔴 Redis server running on: localhost:6379"
-echo "🌐 WebSocket bridge running on: localhost:8081"
+echo "🔗 Access the IDE at: http://localhost:$PORT"
+echo "🔴 Redis server running on: $REDIS_ADDR"
+echo "🌐 WebSocket bridge running on: $WEBSOCKET_ADDR"
 echo ""
 echo "Press Ctrl+C to stop all services"
 

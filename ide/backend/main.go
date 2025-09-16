@@ -262,10 +262,22 @@ func (rp *RedisProxy) handleGetDoc(w http.ResponseWriter, r *http.Request) {
 	w.Write(html)
 }
 
+// getEnv reads an environment variable or returns a fallback value.
+func getEnv(key, fallback string) string {
+	if value, exists := os.LookupEnv(key); exists {
+		return value
+	}
+	return fallback
+}
+
 func main() {
+	// Configuration with environment variable overrides
+	websocketAddr := getEnv("WEBSOCKET_ADDR", ":8081")
+	redisAddrEnv := getEnv("REDIS_ADDR", "localhost:6379")
+
 	var (
-		addr      = flag.String("addr", ":8081", "WebSocket server address")
-		redisAddr = flag.String("redis", "localhost:6379", "Redis server address")
+		addr      = flag.String("addr", websocketAddr, "WebSocket server address")
+		redisAddr = flag.String("redis", redisAddrEnv, "Redis server address")
 	)
 	flag.Parse()
 

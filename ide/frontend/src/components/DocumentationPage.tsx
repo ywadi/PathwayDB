@@ -54,7 +54,7 @@ const DocumentationPage: React.FC<DocumentationPageProps> = ({ onClose }) => {
   useEffect(() => {
     const fetchDocFiles = async () => {
       try {
-        const response = await fetch('http://localhost:8081/api/docs');
+        const response = await fetch('/api/docs');
         const files = await response.json();
         setDocFiles(files);
         if (files.length > 0) {
@@ -75,7 +75,7 @@ const DocumentationPage: React.FC<DocumentationPageProps> = ({ onClose }) => {
     setSelectedFile(filename);
     setLoading(true);
     try {
-      const response = await fetch(`http://localhost:8081/api/docs/${filename}`);
+      const response = await fetch(`/api/docs/${filename}`);
       const html = await response.text();
       setContent(html);
     } catch (error) {

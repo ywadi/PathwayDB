@@ -214,6 +214,47 @@ The analysis engine provides high-level functions for graph traversal, dependenc
 - `GetMaxDepth(...)`
 - `GetConnectedComponentCount(...)`
 
+## Docker (Production)
+
+This project uses `docker-compose` to manage the multi-service production environment. The services are:
+- `pathwaydb-redis`: The custom Redis-compatible server.
+- `backend`: The Go WebSocket bridge.
+- `frontend`: The React application served by Nginx.
+
+### Prerequisites
+
+- Docker
+- Docker Compose
+
+### Building and Running
+
+To build and run the entire application stack, use the following command from the project root:
+
+```bash
+docker compose up --build
+```
+
+This will build the images for all services and start them in the correct order. The IDE will be available at `http://localhost:3000` by default.
+
+### Configuration
+
+You can configure the exposed ports by creating a `.env` file in the project root. If this file is not present, the default ports will be used.
+
+**.env.example**
+```
+PORT=3000
+REDIS_PORT=6379
+WEBSOCKET_PORT=8081
+```
+
+### Stopping the Application
+
+To stop and remove the containers, run:
+
+```bash
+docker compose down
+```
+
 ## Testing
 
 The project includes a comprehensive test suite covering the storage, analysis, and integration layers. It validates all CRUD operations, analysis algorithms, error handling, and edge cases.

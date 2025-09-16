@@ -10,7 +10,7 @@ import { RedisWebSocket } from './services/RedisWebSocket';
 import { Graph, GraphNode, GraphEdge, ConnectionStatus, RedisResponse } from './types';
 
 const App: React.FC = () => {
-  const [redisClient] = useState(() => new RedisWebSocket('localhost', 8081));
+  const [redisClient] = useState(() => new RedisWebSocket());
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
     connected: false,
     host: 'localhost',

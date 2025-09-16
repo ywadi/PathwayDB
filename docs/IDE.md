@@ -25,12 +25,28 @@ The easiest way to get started is with the integrated start script. This will ha
 
 ```bash
 # From the project root
-./ide/start.sh
+./start.sh
 ```
 
 Once running, you can access the IDE at **http://localhost:3000**.
 
 For manual development, see the `Development` section below.
+
+## Configuration
+
+The IDE server ports can be configured using environment variables. If these variables are not set, the IDE will use default values.
+
+- `PORT`: Sets the port for the web IDE. (Default: `3000`)
+- `REDIS_ADDR`: Sets the address for the Redis server. (Default: `:6379`)
+- `WEBSOCKET_ADDR`: Sets the address for the WebSocket bridge server. (Default: `:8081`)
+
+### Example
+
+To run the web IDE on port `4000`, the Redis server on port `6400`, and the WebSocket bridge on port `9000`, you can start the IDE with the following command:
+
+```bash
+PORT=4000 REDIS_ADDR=:6400 WEBSOCKET_ADDR=:9000 ./start.sh
+```
 
 ## Usage
 

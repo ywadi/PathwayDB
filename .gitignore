@@ -9,10 +9,9 @@
 *.test
 
 # Output of the go build command
-/cmd/*/main
 /cmd/ide-server/ide-server
 /cmd/redis-server/redis-server
-redis-server
+/redis-server
 
 # Go workspace file
 go.work
@@ -133,7 +132,6 @@ dist
 
 # Gatsby files
 .cache/
-public
 
 # Storybook build outputs
 .out
