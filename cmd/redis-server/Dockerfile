@@ -3,8 +3,9 @@ FROM golang:1.23-bookworm AS builder
 
 WORKDIR /app
 
-# Copy go.mod and go.sum
-COPY go.mod go.sum ./
+# Copy go.mod and go.sum from project root (go.sum may not exist)
+COPY go.mod ./
+COPY go.su[m] ./
 
 # Download dependencies
 RUN go mod download
