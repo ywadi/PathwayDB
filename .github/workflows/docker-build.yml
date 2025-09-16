@@ -20,17 +20,17 @@ jobs:
     - name: Create data directory
       run: mkdir -p ./data && chmod 777 ./data
       
-    - name: Build PathwayDB Redis
-      run: docker-compose build pathwaydb-redis
+    - name: Build Redis service
+      run: docker compose build pathwaydb-redis
       
-    - name: Build Backend
-      run: docker-compose build backend
+    - name: Build Backend service
+      run: docker compose build backend
       
-    - name: Build Frontend
-      run: docker-compose build frontend
+    - name: Build Frontend service
+      run: docker compose build frontend
       
     - name: Start services
-      run: docker-compose up -d
+      run: docker compose up -d
       
     - name: Wait for services to be ready
       run: |
@@ -39,9 +39,9 @@ jobs:
         
     - name: Check service health
       run: |
-        docker-compose ps
-        docker-compose logs pathwaydb-redis
-        docker-compose logs backend
+        docker compose ps
+        docker compose logs pathwaydb-redis
+        docker compose logs backend
         
     - name: Test services health
       run: |
@@ -49,7 +49,7 @@ jobs:
         echo "Testing service health..."
         
         # Test Redis service
-        docker-compose exec -T pathwaydb-redis echo "Redis service is running"
+        docker compose exec -T pathwaydb-redis echo "Redis service is running"
         
         # Test Backend WebSocket (check if port is listening)
         timeout 30 bash -c 'until nc -z localhost 8081; do sleep 1; done'
@@ -61,4 +61,4 @@ jobs:
         
     - name: Cleanup
       if: always()
-      run: docker-compose down -v
+      run: docker compose down -v
