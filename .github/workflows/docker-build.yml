@@ -17,17 +17,45 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
       
+    - name: Login to Docker Hub
+      if: github.event_name != 'pull_request'
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
     - name: Create data directory
       run: mkdir -p ./data && chmod 777 ./data
       
-    - name: Build Redis service
-      run: docker compose build pathwaydb-redis
+    - name: Build and push Redis service
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        dockerfile: cmd/redis-server/Dockerfile
+        push: ${{ github.event_name != 'pull_request' }}
+        tags: |
+          ${{ secrets.DOCKERHUB_USERNAME }}/pathwaydb-redis:latest
+          ${{ secrets.DOCKERHUB_USERNAME }}/pathwaydb-redis:${{ github.sha }}
       
-    - name: Build Backend service
-      run: docker compose build backend
+    - name: Build and push Backend service
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        dockerfile: ide/backend/Dockerfile
+        push: ${{ github.event_name != 'pull_request' }}
+        tags: |
+          ${{ secrets.DOCKERHUB_USERNAME }}/pathwaydb-backend:latest
+          ${{ secrets.DOCKERHUB_USERNAME }}/pathwaydb-backend:${{ github.sha }}
       
-    - name: Build Frontend service
-      run: docker compose build frontend
+    - name: Build and push Frontend service
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        dockerfile: ide/frontend/Dockerfile
+        push: ${{ github.event_name != 'pull_request' }}
+        tags: |
+          ${{ secrets.DOCKERHUB_USERNAME }}/pathwaydb-frontend:latest
+          ${{ secrets.DOCKERHUB_USERNAME }}/pathwaydb-frontend:${{ github.sha }}
       
     - name: Start services
       run: docker compose up -d
