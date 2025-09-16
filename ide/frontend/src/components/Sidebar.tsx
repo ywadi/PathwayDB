@@ -213,9 +213,11 @@ const Sidebar: React.FC<SidebarProps> = ({
                         </Typography>
                       }
                       secondary={
-                        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '10px' }}>
-                          {graph.nodes.length}n, {graph.edges.length}e
-                        </Typography>
+                        graph.nodes.length > 0 || graph.edges.length > 0 ? (
+                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '10px' }}>
+                            {graph.nodes.length}n, {graph.edges.length}e
+                          </Typography>
+                        ) : undefined
                       }
                     />
                     <IconButton

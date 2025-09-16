@@ -33,7 +33,7 @@ const App: React.FC = () => {
     const connect = async () => {
       try {
         await redisClient.connect();
-        await loadGraphs();
+        await loadGraphList();
       } catch (err) {
         setError('Failed to connect to PathwayDB Redis server');
       }
@@ -46,7 +46,7 @@ const App: React.FC = () => {
     };
   }, []);
 
-  const loadGraphs = useCallback(async () => {
+  const loadGraphList = useCallback(async () => {
     if (!redisClient.isConnected()) return;
     try {
       const graphList = await redisClient.listGraphs();
@@ -57,142 +57,14 @@ const App: React.FC = () => {
         const graphId = graphList[i];
         const description = graphList[i + 1] || '';
 
-        try {
-          // Load nodes and edges for each graph
-          const [nodeList, edgeList] = await Promise.all([
-            redisClient.listNodes(graphId).catch(() => []),
-            redisClient.listEdges(graphId).catch(() => [])
-          ]);
-
-          // Convert to proper format
-          const graphNodes: GraphNode[] = [];
-          const graphEdges: GraphEdge[] = [];
-
-          // Process nodes - NODE.LIST now returns [id:type, id:type, ...]
-          for (let j = 0; j < nodeList.length; j++) {
-            if (nodeList[j]) {
-              const [nodeId, nodeType] = nodeList[j].split(':');
-              if (!nodeId) continue;
-              
-              // Get detailed node info
-              try {
-                const nodeDetails = await redisClient.getNode(graphId, nodeId);
-                let attributes = {};
-                let expiresAt: string | undefined = undefined;
-
-                if (nodeDetails && nodeDetails.length >= 3) {
-                  try {
-                    const attrStr = nodeDetails[2] || '{}';
-                    if (attrStr.startsWith('{') && attrStr.endsWith('}')) {
-                      attributes = JSON.parse(attrStr);
-                    }
-                  } catch (e) {
-                    console.warn(`Failed to parse node attributes for ${nodeId}:`, nodeDetails[2]);
-                  }
-                }
-
-                if (nodeDetails && nodeDetails.length >= 4 && nodeDetails[3]) {
-                  expiresAt = nodeDetails[3];
-                }
-                
-                graphNodes.push({
-                  id: nodeId,
-                  type: nodeType || 'default',
-                  attributes,
-                  expiresAt
-                });
-              } catch (e) {
-                // If we can't get details, add basic node
-                graphNodes.push({
-                  id: nodeId,
-                  type: nodeType || 'default',
-                  attributes: {}
-                });
-              }
-            }
-          }
-
-          // Process edges - EDGE.LIST now returns [id:type, id:type, ...]
-          for (let j = 0; j < edgeList.length; j++) {
-            if (edgeList[j]) {
-              const [edgeId, edgeType] = edgeList[j].split(':');
-              if (!edgeId) continue;
-              
-              // Get detailed edge info to find source and target
-              let source = '';
-              let target = '';
-              
-              // Get detailed edge info
-              try {
-                const edgeDetails = await redisClient.getEdge(graphId, edgeId);
-                let attributes = {};
-                let expiresAt: string | undefined = undefined;
-
-                if (edgeDetails && edgeDetails.length >= 3) {
-                  source = edgeDetails[1] || '';
-                  target = edgeDetails[2] || '';
-                  
-                  if (edgeDetails.length >= 5) {
-                    try {
-                      const attrStr = edgeDetails[4] || '{}';
-                      if (attrStr.startsWith('{') && attrStr.endsWith('}')) {
-                        attributes = JSON.parse(attrStr);
-                      }
-                    } catch (e) {
-                      console.warn(`Failed to parse edge attributes for ${edgeId}:`, edgeDetails[4]);
-                    }
-                  }
-
-                  if (edgeDetails.length >= 6 && edgeDetails[5]) {
-                    expiresAt = edgeDetails[5];
-                  }
-                }
-                
-                if (source && target) {
-                  graphEdges.push({
-                    id: edgeId,
-                    source,
-                    target,
-                    type: edgeType || 'default',
-                    attributes,
-                    expiresAt
-                  });
-                }
-              } catch (e) {
-                console.warn(`Failed to get edge details for ${edgeId}:`, e);
-              }
-            }
-          }
-
-          // Check for cycles
-          let hasCycles = false;
-          try {
-            const cycleResponse = await redisClient.executeCommand('ANALYSIS.CYCLES', [graphId]);
-            hasCycles = cycleResponse.value && Array.isArray(cycleResponse.value) && cycleResponse.value.length > 0;
-          } catch (err) {
-            console.warn(`Failed to check cycles for graph ${graphId}:`, err);
-          }
-
-          // Add graph with loaded data
-          loadedGraphs.push({
-            id: graphId,
-            name: graphId,
-            description,
-            nodes: graphNodes,
-            edges: graphEdges,
-            hasCycles
-          });
-        } catch (err) {
-          console.warn(`Failed to load data for graph ${graphId}:`, err);
-          // Add graph with empty data
-          loadedGraphs.push({
-            id: graphId,
-            name: graphId,
-            description,
-            nodes: [],
-            edges: []
-          });
-        }
+        // Add graph with metadata only - no nodes/edges loaded yet
+        loadedGraphs.push({
+          id: graphId,
+          name: graphId,
+          description,
+          nodes: [],
+          edges: []
+        });
       }
 
       setGraphs(loadedGraphs);
@@ -202,10 +74,142 @@ const App: React.FC = () => {
         setSelectedGraph(loadedGraphs[0].id);
       }
     } catch (err) {
-      setError('Failed to load graphs');
-      console.error('Error loading graphs:', err);
+      setError('Failed to load graph list');
+      console.error('Error loading graph list:', err);
     }
   }, [redisClient, selectedGraph]);
+
+  const loadGraphData = useCallback(async (graphId: string) => {
+    if (!redisClient.isConnected()) return;
+    try {
+      // Load nodes and edges for the specific graph
+      const [nodeList, edgeList] = await Promise.all([
+        redisClient.listNodes(graphId).catch(() => []),
+        redisClient.listEdges(graphId).catch(() => [])
+      ]);
+
+      // Convert to proper format
+      const graphNodes: GraphNode[] = [];
+      const graphEdges: GraphEdge[] = [];
+
+      // Process nodes - NODE.LIST now returns [id:type, id:type, ...]
+      for (let j = 0; j < nodeList.length; j++) {
+        if (nodeList[j]) {
+          const [nodeId, nodeType] = nodeList[j].split(':');
+          if (!nodeId) continue;
+          
+          // Get detailed node info
+          try {
+            const nodeDetails = await redisClient.getNode(graphId, nodeId);
+            let attributes = {};
+            let expiresAt: string | undefined = undefined;
+
+            if (nodeDetails && nodeDetails.length >= 3) {
+              try {
+                const attrStr = nodeDetails[2] || '{}';
+                if (attrStr.startsWith('{') && attrStr.endsWith('}')) {
+                  attributes = JSON.parse(attrStr);
+                }
+              } catch (e) {
+                console.warn(`Failed to parse node attributes for ${nodeId}:`, nodeDetails[2]);
+              }
+            }
+
+            if (nodeDetails && nodeDetails.length >= 4 && nodeDetails[3]) {
+              expiresAt = nodeDetails[3];
+            }
+            
+            graphNodes.push({
+              id: nodeId,
+              type: nodeType || 'default',
+              attributes,
+              expiresAt
+            });
+          } catch (e) {
+            // If we can't get details, add basic node
+            graphNodes.push({
+              id: nodeId,
+              type: nodeType || 'default',
+              attributes: {}
+            });
+          }
+        }
+      }
+
+      // Process edges - EDGE.LIST now returns [id:type, id:type, ...]
+      for (let j = 0; j < edgeList.length; j++) {
+        if (edgeList[j]) {
+          const [edgeId, edgeType] = edgeList[j].split(':');
+          if (!edgeId) continue;
+          
+          // Get detailed edge info to find source and target
+          let source = '';
+          let target = '';
+          
+          // Get detailed edge info
+          try {
+            const edgeDetails = await redisClient.getEdge(graphId, edgeId);
+            let attributes = {};
+            let expiresAt: string | undefined = undefined;
+
+            if (edgeDetails && edgeDetails.length >= 3) {
+              source = edgeDetails[1] || '';
+              target = edgeDetails[2] || '';
+              
+              if (edgeDetails.length >= 5) {
+                try {
+                  const attrStr = edgeDetails[4] || '{}';
+                  if (attrStr.startsWith('{') && attrStr.endsWith('}')) {
+                    attributes = JSON.parse(attrStr);
+                  }
+                } catch (e) {
+                  console.warn(`Failed to parse edge attributes for ${edgeId}:`, edgeDetails[4]);
+                }
+              }
+
+              if (edgeDetails.length >= 6 && edgeDetails[5]) {
+                expiresAt = edgeDetails[5];
+              }
+            }
+            
+            if (source && target) {
+              graphEdges.push({
+                id: edgeId,
+                source,
+                target,
+                type: edgeType || 'default',
+                attributes,
+                expiresAt
+              });
+            }
+          } catch (e) {
+            console.warn(`Failed to get edge details for ${edgeId}:`, e);
+          }
+        }
+      }
+
+      // Check for cycles
+      let hasCycles = false;
+      try {
+        const cycleResponse = await redisClient.executeCommand('ANALYSIS.CYCLES', [graphId]);
+        hasCycles = cycleResponse.value && Array.isArray(cycleResponse.value) && cycleResponse.value.length > 0;
+      } catch (err) {
+        console.warn(`Failed to check cycles for graph ${graphId}:`, err);
+      }
+
+      // Update the specific graph with loaded data
+      setGraphs(prevGraphs => 
+        prevGraphs.map(graph => 
+          graph.id === graphId 
+            ? { ...graph, nodes: graphNodes, edges: graphEdges, hasCycles }
+            : graph
+        )
+      );
+    } catch (err) {
+      setError(`Failed to load data for graph ${graphId}`);
+      console.error(`Error loading graph data for ${graphId}:`, err);
+    }
+  }, [redisClient]);
 
   const parseCommand = (command: string): { cmd: string; args: string[] } => {
     const trimmed = command.trim();
@@ -260,7 +264,13 @@ const App: React.FC = () => {
     
     // Refresh graphs if command might have changed data
     if (cmd.startsWith('GRAPH.') || cmd.startsWith('NODE.') || cmd.startsWith('EDGE.')) {
-      setTimeout(loadGraphs, 100);
+      setTimeout(() => {
+        if (selectedGraph) {
+          loadGraphData(selectedGraph);
+        } else {
+          loadGraphList();
+        }
+      }, 100);
     }
 
     return response;
@@ -270,6 +280,12 @@ const App: React.FC = () => {
     setSelectedGraph(graphId);
     setSelectedNode(null);
     setSelectedEdge(null);
+    
+    // Load data for the selected graph if not already loaded
+    const graph = graphs.find(g => g.id === graphId);
+    if (graph && graph.nodes.length === 0 && graph.edges.length === 0) {
+      loadGraphData(graphId);
+    }
   };
 
   const handleNodeSelect = useCallback((node: GraphNode | null) => {
@@ -363,7 +379,7 @@ const App: React.FC = () => {
                 graphs={graphs}
                 selectedGraph={selectedGraph}
                 onGraphSelect={handleGraphSelect}
-                onRefresh={loadGraphs}
+                onRefresh={loadGraphList}
                 connected={connectionStatus.connected}
               />
             </Grid>
@@ -408,7 +424,7 @@ const App: React.FC = () => {
                 edges={currentGraph?.edges || []}
                 onNodeSelect={handleNodeSelect}
                 onEdgeSelect={handleEdgeSelect}
-                onRefresh={loadGraphs}
+                onRefresh={loadGraphList}
               />
             </Box>
           </Grid>
