@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gomarkdown/markdown"
@@ -39,23 +40,113 @@ type WebSocketResponse struct {
 	Timestamp int64       `json:"timestamp"`
 }
 
+type ConnectionPool struct {
+	redisAddr string
+	pool      chan net.Conn
+	maxSize   int
+	mutex     sync.Mutex
+	closed    bool
+}
+
+func NewConnectionPool(redisAddr string, maxSize int) *ConnectionPool {
+	return &ConnectionPool{
+		redisAddr: redisAddr,
+		pool:      make(chan net.Conn, maxSize),
+		maxSize:   maxSize,
+	}
+}
+
+func (cp *ConnectionPool) GetConnection() (net.Conn, error) {
+	cp.mutex.Lock()
+	defer cp.mutex.Unlock()
+	
+	if cp.closed {
+		return nil, fmt.Errorf("connection pool is closed")
+	}
+	
+	select {
+	case conn := <-cp.pool:
+		// Test if connection is still alive
+		conn.SetReadDeadline(time.Now().Add(1 * time.Millisecond))
+		buf := make([]byte, 1)
+		_, err := conn.Read(buf)
+		conn.SetReadDeadline(time.Time{}) // Clear deadline
+		
+		if err == nil {
+			// Connection has data, put it back and create new one
+			return net.Dial("tcp", cp.redisAddr)
+		} else if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			// Connection is alive (timeout as expected)
+			return conn, nil
+		} else {
+			// Connection is dead, create new one
+			conn.Close()
+			return net.Dial("tcp", cp.redisAddr)
+		}
+	default:
+		// No connection available, create new one
+		return net.Dial("tcp", cp.redisAddr)
+	}
+}
+
+func (cp *ConnectionPool) ReturnConnection(conn net.Conn) {
+	cp.mutex.Lock()
+	defer cp.mutex.Unlock()
+	
+	if cp.closed {
+		conn.Close()
+		return
+	}
+	
+	select {
+	case cp.pool <- conn:
+		// Successfully returned to pool
+	default:
+		// Pool is full, close the connection
+		conn.Close()
+	}
+}
+
+func (cp *ConnectionPool) Close() {
+	cp.mutex.Lock()
+	defer cp.mutex.Unlock()
+	
+	cp.closed = true
+	close(cp.pool)
+	
+	// Close all connections in pool
+	for conn := range cp.pool {
+		conn.Close()
+	}
+}
+
 type RedisProxy struct {
 	redisAddr string
+	connPool  *ConnectionPool
 }
 
 func NewRedisProxy(redisAddr string) *RedisProxy {
 	return &RedisProxy{
 		redisAddr: redisAddr,
+		connPool:  NewConnectionPool(redisAddr, 10), // Pool of 10 connections
 	}
 }
 
 func (rp *RedisProxy) ExecuteCommand(command string, args []string) (*WebSocketResponse, error) {
-	// Connect to Redis server via TCP
-	conn, err := net.Dial("tcp", rp.redisAddr)
+	// Get connection from pool
+	conn, err := rp.connPool.GetConnection()
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Close()
+	
+	// Return connection to pool when done (or close if error)
+	defer func() {
+		if err != nil {
+			conn.Close()
+		} else {
+			rp.connPool.ReturnConnection(conn)
+		}
+	}()
 
 	// Build Redis command in RESP protocol
 	cmdParts := append([]string{command}, args...)
@@ -330,6 +421,9 @@ func main() {
 	flag.Parse()
 
 	proxy := NewRedisProxy(*redisAddr)
+	
+	// Cleanup connection pool on shutdown
+	defer proxy.connPool.Close()
 
 	// WebSocket endpoint
 	http.HandleFunc("/ws", proxy.handleWebSocket)
@@ -345,7 +439,7 @@ func main() {
 	http.Handle("/", http.FileServer(http.Dir("../frontend/build/")))
 
 	log.Printf("PathwayDB IDE WebSocket server starting on %s", *addr)
-	log.Printf("Connecting to Redis server at %s", *redisAddr)
+	log.Printf("Connecting to Redis server at %s with connection pool (max 10 connections)", *redisAddr)
 
 	if err := http.ListenAndServe(*addr, nil); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
