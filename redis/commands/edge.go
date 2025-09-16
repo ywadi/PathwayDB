@@ -257,6 +257,9 @@ func (e *EdgeCommands) handleFilter(args []string) (*protocol.Response, error) {
 
 // handleNeighbors handles EDGE.NEIGHBORS <graph> <node_id> [direction] [FORMAT simple|detailed]
 // direction can be: "in", "out", "both" (default: "both")
+// FORMAT simple: returns neighbor_id:neighbor_type
+// FORMAT detailed: returns neighbor_id:neighbor_type<arrow>edge_id:edge_type
+//   where <arrow> is "<-" for incoming edges or "->" for outgoing edges
 func (e *EdgeCommands) handleNeighbors(args []string) (*protocol.Response, error) {
 	if len(args) < 2 {
 		return nil, fmt.Errorf("EDGE.NEIGHBORS requires at least 2 arguments: graph, node_id")
@@ -364,18 +367,28 @@ func (e *EdgeCommands) handleNeighbors(args []string) (*protocol.Response, error
 		return protocol.NewArrayResponse(response), nil
 	}
 
-	// Enhanced detailed format with pipe-delimited format
+	// Enhanced detailed format with arrow notation consistent with ANALYSIS.TRAVERSE
 	result := make([]string, 0, len(neighborInfos)+1)
 	result = append(result, fmt.Sprintf("%d", len(neighborInfos)))
 	
 	for _, info := range neighborInfos {
-		// Format: neighbor_node_id:neighbor_node_type->connecting_edge_id:connecting_edge_type->direction
-		neighborStr := fmt.Sprintf("%s:%s->%s:%s->%s",
+		// Determine arrow direction based on edge relationship
+		var arrow string
+		if info.Direction == "in" {
+			// For incoming edges: neighbor->edge<-current_node (but we show neighbor<-edge<-)
+			arrow = "<-"
+		} else {
+			// For outgoing edges: current_node->edge->neighbor (but we show neighbor->edge->)
+			arrow = "->"
+		}
+		
+		// Format: neighbor_node_id:neighbor_node_type<arrow>connecting_edge_id:connecting_edge_type
+		neighborStr := fmt.Sprintf("%s:%s%s%s:%s",
 			string(info.Node.ID),
 			string(info.Node.Type),
+			arrow,
 			string(info.Edge.ID),
-			string(info.Edge.Type),
-			info.Direction)
+			string(info.Edge.Type))
 		result = append(result, neighborStr)
 	}
 
@@ -399,10 +412,10 @@ func (e *EdgeCommands) handleList(args []string) (*protocol.Response, error) {
 		return protocol.NewArrayResponse([]string{}), nil
 	}
 
-	// Return edge IDs, from/to nodes, and types
-	result := make([]string, 0, len(edges)*4)
+	// Return edge IDs and types in id:type format for consistency
+	result := make([]string, 0, len(edges))
 	for _, edge := range edges {
-		result = append(result, string(edge.ID), string(edge.FromNodeID), string(edge.ToNodeID), string(edge.Type))
+		result = append(result, string(edge.ID)+":"+string(edge.Type))
 	}
 
 	return protocol.NewArrayResponse(result), nil

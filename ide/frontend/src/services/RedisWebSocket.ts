@@ -15,9 +15,14 @@ export class RedisWebSocket {
   public onError: ((error: string) => void) | null = null;
 
   constructor() {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    this.url = `${protocol}//${host}/ws`;
+    // Use environment variable if available, otherwise fall back to current behavior
+    if (process.env.REACT_APP_WEBSOCKET_URL) {
+      this.url = process.env.REACT_APP_WEBSOCKET_URL;
+    } else {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host;
+      this.url = `${protocol}//${host}/ws`;
+    }
   }
 
   public connect(): Promise<void> {

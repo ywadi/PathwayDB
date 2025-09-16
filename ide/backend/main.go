@@ -194,10 +194,34 @@ func (rp *RedisProxy) handleListDocs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
-	docsDir := "../../docs"
+	// Get the project root directory
+	execPath, err := os.Executable()
+	if err != nil {
+		http.Error(w, "Failed to determine executable path", http.StatusInternalServerError)
+		return
+	}
+	
+	// Navigate to project root from wherever the executable is
+	projectRoot := filepath.Dir(filepath.Dir(filepath.Dir(execPath)))
+	// If running with go run, use current working directory approach
+	if strings.Contains(execPath, "go-build") {
+		wd, err := os.Getwd()
+		if err != nil {
+			http.Error(w, "Failed to get working directory", http.StatusInternalServerError)
+			return
+		}
+		// If we're in the backend directory, go up two levels
+		if strings.HasSuffix(wd, "ide/backend") {
+			projectRoot = filepath.Dir(filepath.Dir(wd))
+		} else {
+			projectRoot = wd
+		}
+	}
+	
+	docsDir := filepath.Join(projectRoot, "docs")
 	files, err := ioutil.ReadDir(docsDir)
 	if err != nil {
-		http.Error(w, "Failed to read docs directory", http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Failed to read docs directory: %s", docsDir), http.StatusInternalServerError)
 		return
 	}
 
@@ -224,12 +248,36 @@ func (rp *RedisProxy) handleGetDoc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get the project root directory
+	execPath, err := os.Executable()
+	if err != nil {
+		http.Error(w, "Failed to determine executable path", http.StatusInternalServerError)
+		return
+	}
+	
+	// Navigate to project root from wherever the executable is
+	projectRoot := filepath.Dir(filepath.Dir(filepath.Dir(execPath)))
+	// If running with go run, use current working directory approach
+	if strings.Contains(execPath, "go-build") {
+		wd, err := os.Getwd()
+		if err != nil {
+			http.Error(w, "Failed to get working directory", http.StatusInternalServerError)
+			return
+		}
+		// If we're in the backend directory, go up two levels
+		if strings.HasSuffix(wd, "ide/backend") {
+			projectRoot = filepath.Dir(filepath.Dir(wd))
+		} else {
+			projectRoot = wd
+		}
+	}
+
 	// Determine file path
 	var filePath string
 	if filename == "README.md" {
-		filePath = "../../README.md"
+		filePath = filepath.Join(projectRoot, "README.md")
 	} else {
-		filePath = filepath.Join("../../docs", filename)
+		filePath = filepath.Join(projectRoot, "docs", filename)
 	}
 
 	// Security: ensure the path is clean and within the project
@@ -239,7 +287,7 @@ func (rp *RedisProxy) handleGetDoc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A basic check to prevent directory traversal
-	if !strings.Contains(cleanPath, "/Development/PathwayDB/") {
+	if !strings.Contains(cleanPath, "PathwayDB") {
 		http.Error(w, "Access denied", http.StatusForbidden)
 		return
 	}

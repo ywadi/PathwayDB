@@ -68,11 +68,11 @@ const App: React.FC = () => {
           const graphNodes: GraphNode[] = [];
           const graphEdges: GraphEdge[] = [];
 
-          // Process nodes - NODE.LIST returns [id, type, id, type, ...]
-          for (let j = 0; j < nodeList.length; j += 2) {
+          // Process nodes - NODE.LIST now returns [id:type, id:type, ...]
+          for (let j = 0; j < nodeList.length; j++) {
             if (nodeList[j]) {
-              const nodeId = nodeList[j];
-              const nodeType = nodeList[j + 1] || 'default';
+              const [nodeId, nodeType] = nodeList[j].split(':');
+              if (!nodeId) continue;
               
               // Get detailed node info
               try {
@@ -97,7 +97,7 @@ const App: React.FC = () => {
                 
                 graphNodes.push({
                   id: nodeId,
-                  type: nodeType,
+                  type: nodeType || 'default',
                   attributes,
                   expiresAt
                 });
@@ -105,20 +105,22 @@ const App: React.FC = () => {
                 // If we can't get details, add basic node
                 graphNodes.push({
                   id: nodeId,
-                  type: nodeType,
+                  type: nodeType || 'default',
                   attributes: {}
                 });
               }
             }
           }
 
-          // Process edges - EDGE.LIST returns [id, source, target, type, ...]
-          for (let j = 0; j < edgeList.length; j += 4) {
+          // Process edges - EDGE.LIST now returns [id:type, id:type, ...]
+          for (let j = 0; j < edgeList.length; j++) {
             if (edgeList[j]) {
-              const edgeId = edgeList[j];
-              const source = edgeList[j + 1];
-              const target = edgeList[j + 2];
-              const edgeType = edgeList[j + 3] || 'default';
+              const [edgeId, edgeType] = edgeList[j].split(':');
+              if (!edgeId) continue;
+              
+              // Get detailed edge info to find source and target
+              let source = '';
+              let target = '';
               
               // Get detailed edge info
               try {
@@ -126,38 +128,38 @@ const App: React.FC = () => {
                 let attributes = {};
                 let expiresAt: string | undefined = undefined;
 
-                if (edgeDetails && edgeDetails.length >= 5) {
-                  try {
-                    const attrStr = edgeDetails[4] || '{}';
-                    if (attrStr.startsWith('{') && attrStr.endsWith('}')) {
-                      attributes = JSON.parse(attrStr);
+                if (edgeDetails && edgeDetails.length >= 3) {
+                  source = edgeDetails[1] || '';
+                  target = edgeDetails[2] || '';
+                  
+                  if (edgeDetails.length >= 5) {
+                    try {
+                      const attrStr = edgeDetails[4] || '{}';
+                      if (attrStr.startsWith('{') && attrStr.endsWith('}')) {
+                        attributes = JSON.parse(attrStr);
+                      }
+                    } catch (e) {
+                      console.warn(`Failed to parse edge attributes for ${edgeId}:`, edgeDetails[4]);
                     }
-                  } catch (e) {
-                    console.warn(`Failed to parse edge attributes for ${edgeId}:`, edgeDetails[4]);
+                  }
+
+                  if (edgeDetails.length >= 6 && edgeDetails[5]) {
+                    expiresAt = edgeDetails[5];
                   }
                 }
-
-                if (edgeDetails && edgeDetails.length >= 6 && edgeDetails[5]) {
-                  expiresAt = edgeDetails[5];
-                }
                 
-                graphEdges.push({
-                  id: edgeId,
-                  source,
-                  target,
-                  type: edgeType,
-                  attributes,
-                  expiresAt
-                });
+                if (source && target) {
+                  graphEdges.push({
+                    id: edgeId,
+                    source,
+                    target,
+                    type: edgeType || 'default',
+                    attributes,
+                    expiresAt
+                  });
+                }
               } catch (e) {
-                // If we can't get details, add basic edge
-                graphEdges.push({
-                  id: edgeId,
-                  source,
-                  target,
-                  type: edgeType,
-                  attributes: {}
-                });
+                console.warn(`Failed to get edge details for ${edgeId}:`, e);
               }
             }
           }
@@ -205,10 +207,54 @@ const App: React.FC = () => {
     }
   }, [redisClient, selectedGraph]);
 
-  const handleExecuteCommand = async (command: string): Promise<RedisResponse> => {
-    const parts = command.trim().split(/\s+/);
+  const parseCommand = (command: string): { cmd: string; args: string[] } => {
+    const trimmed = command.trim();
+    const parts: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    let quoteChar = '';
+    
+    for (let i = 0; i < trimmed.length; i++) {
+      const char = trimmed[i];
+      
+      if (!inQuotes && (char === '"' || char === "'")) {
+        inQuotes = true;
+        quoteChar = char;
+      } else if (inQuotes && char === quoteChar) {
+        inQuotes = false;
+        quoteChar = '';
+      } else if (!inQuotes && /\s/.test(char)) {
+        if (current) {
+          parts.push(current);
+          current = '';
+        }
+      } else {
+        current += char;
+      }
+    }
+    
+    if (current) {
+      parts.push(current);
+    }
+    
+    if (parts.length === 0) {
+      return { cmd: '', args: [] };
+    }
+    
     const cmd = parts[0].toUpperCase();
-    const args = parts.slice(1);
+    const args = parts.slice(1).map(arg => {
+      // Handle JSON arguments wrapped in single quotes
+      if (arg.startsWith("'") && arg.endsWith("'") && arg.includes('{')) {
+        return arg.slice(1, -1); // Remove outer single quotes
+      }
+      return arg;
+    });
+    
+    return { cmd, args };
+  };
+
+  const handleExecuteCommand = async (command: string): Promise<RedisResponse> => {
+    const { cmd, args } = parseCommand(command);
 
     const response = await redisClient.executeCommand(cmd, args);
     
@@ -236,30 +282,43 @@ const App: React.FC = () => {
     setSelectedNode(null);
   }, []);
 
-  const handleOpenDocumentation = () => {
-    setShowDocs(true);
-  };
+  const handleOpenDocumentation = useCallback(() => {
+    // Store current graph selection for restoration later
+    if (selectedGraph) {
+      localStorage.setItem('selectedGraph', selectedGraph);
+    }
+    
+    // Clear selections and force cleanup before switching views
+    setSelectedNode(null);
+    setSelectedEdge(null);
+    
+    // Clear graph selection to trigger Cytoscape cleanup
+    setSelectedGraph(null);
+    
+    // Small delay to ensure cleanup completes before showing docs
+    setTimeout(() => {
+      setShowDocs(true);
+    }, 50);
+  }, [selectedGraph]);
 
   const handleCloseDocumentation = useCallback(() => {
+    setShowDocs(false);
+    
     // Clear selections to prevent Cytoscape.js from trying to access stale references
     setSelectedNode(null);
     setSelectedEdge(null);
     
-    // Force a complete re-render by clearing the graph selection temporarily
-    const currentGraphId = selectedGraph;
-    setSelectedGraph(null);
-    
-    // Use a longer timeout to ensure complete cleanup
+    // Small delay before restoring graph to allow DOM to settle
     setTimeout(() => {
-      setShowDocs(false);
-      // Restore the graph selection after the view has switched
-      setTimeout(() => {
-        if (currentGraphId) {
-          setSelectedGraph(currentGraphId);
-        }
-      }, 100);
-    }, 50);
-  }, [selectedGraph]);
+      // Restore the previous graph selection if it existed
+      const storedGraph = localStorage.getItem('selectedGraph');
+      if (storedGraph && graphs.find(g => g.id === storedGraph)) {
+        setSelectedGraph(storedGraph);
+      } else if (graphs.length > 0) {
+        setSelectedGraph(graphs[0].id);
+      }
+    }, 100);
+  }, [graphs]);
 
   const currentGraph = graphs.find(g => g.id === selectedGraph);
 

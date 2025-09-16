@@ -162,16 +162,29 @@ NODE.GET <graph> <id>
 
 ### `NODE.UPDATE`
 
-Updates the attributes of an existing node.
+Updates an existing node's type, attributes, and/or TTL. At least one update parameter must be provided.
 
 - **Syntax**:
 ```redis
-NODE.UPDATE <graph> <id> <attributes_json> [TTL <seconds>]
+NODE.UPDATE <graph> <id> [TYPE <new_type>] [ATTRIBUTES <attributes_json>] [TTL <seconds>]
 ```
 
-- **Example Input**:
+- **Parameters**:
+  - `TYPE <new_type>`: (Optional) Updates the node's type
+  - `ATTRIBUTES <attributes_json>`: (Optional) Updates the node's attributes with JSON
+  - `TTL <seconds>`: (Optional) Sets expiration time in seconds (0 removes expiration)
+
+- **Example Inputs**:
 ```redis
-> NODE.UPDATE my-graph service-a '{"version":"1.1"}' TTL 0
+> NODE.UPDATE my-graph service-a TYPE microservice
+> NODE.UPDATE my-graph service-a ATTRIBUTES '{"version":"1.1"}'
+> NODE.UPDATE my-graph service-a TYPE microservice ATTRIBUTES '{"version":"2.0"}' TTL 3600
+> NODE.UPDATE my-graph service-a TTL 0
+```
+
+- **Legacy Syntax** (still supported):
+```redis
+NODE.UPDATE <graph> <id> <attributes_json> [TTL <seconds>]
 ```
 
 - **Example Output**:
@@ -238,10 +251,8 @@ NODE.LIST <graph>
 
 - **Example Output**:
 ```redis
-1) "service-a"
-2) "service"
-3) "service-b"
-4) "database"
+1) "service-a:service"
+2) "service-b:database"
 ```
 
 ### `NODE.EXISTS`
@@ -382,6 +393,15 @@ Gets all neighboring nodes connected to a specified node.
 EDGE.NEIGHBORS <graph> <node> [DIRECTION in|out|both] [FORMAT simple|detailed]
 ```
 
+- **Parameters**:
+  - `DIRECTION`: Filter by edge direction relative to the specified node
+    - `in`: Only incoming edges (neighbors that connect TO this node)
+    - `out`: Only outgoing edges (neighbors that connect FROM this node)  
+    - `both`: Both directions (default)
+  - `FORMAT`: Output format
+    - `simple`: Returns `neighbor_id:neighbor_type`
+    - `detailed`: Returns `neighbor_id:neighbor_type<arrow>edge_id:edge_type` where `<arrow>` is `<-` for incoming edges or `->` for outgoing edges
+
 - **Example Input (detailed)**:
 ```redis
 > EDGE.NEIGHBORS my-graph service-a
@@ -390,7 +410,7 @@ EDGE.NEIGHBORS <graph> <node> [DIRECTION in|out|both] [FORMAT simple|detailed]
 - **Example Output (detailed)**:
 ```redis
 1) "1"
-2) "service-b:service->edge-ab:depends_on->out"
+2) "service-b:service->edge-ab:depends_on"
 ```
 
 - **Example Input (simple)**:
@@ -419,10 +439,8 @@ EDGE.LIST <graph>
 
 - **Example Output**:
 ```redis
-1) "edge-ab"
-2) "service-a"
-3) "service-b"
-4) "depends_on"
+1) "edge-ab:depends_on"
+2) "edge-bc:depends_on"
 ```
 
 ### `EDGE.EXISTS`

@@ -140,30 +140,14 @@ func (n *NodeCommands) handleGet(args []string) (*protocol.Response, error) {
 	return protocol.NewArrayResponse(result), nil
 }
 
-// handleUpdate handles NODE.UPDATE <graph> <id> <attributes_json> [TTL <seconds>]
+// handleUpdate handles NODE.UPDATE <graph> <id> [TYPE <new_type>] [ATTRIBUTES <attributes_json>] [TTL <seconds>]
 func (n *NodeCommands) handleUpdate(args []string) (*protocol.Response, error) {
 	if len(args) < 3 {
-		return nil, fmt.Errorf("NODE.UPDATE requires at least 3 arguments: graph, id, attributes_json")
+		return nil, fmt.Errorf("NODE.UPDATE requires at least 3 arguments: graph, id, and at least one update parameter")
 	}
 
 	graphID := args[0]
 	nodeID := args[1]
-
-	// Parse new attributes
-	var attributes map[string]interface{}
-	if err := json.Unmarshal([]byte(args[2]), &attributes); err != nil {
-		return nil, fmt.Errorf("invalid attributes JSON: %v", err)
-	}
-
-	var ttlSeconds int64 = -1
-	// Parse optional TTL
-	if len(args) > 4 && strings.ToUpper(args[3]) == "TTL" {
-		ttl, err := strconv.ParseInt(args[4], 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("invalid TTL value: %v", err)
-		}
-		ttlSeconds = ttl
-	}
 
 	// Get the existing node first
 	existingNode, err := n.storage.GetNode(models.GraphID(graphID), models.NodeID(nodeID))
@@ -174,8 +158,75 @@ func (n *NodeCommands) handleUpdate(args []string) (*protocol.Response, error) {
 		return nil, fmt.Errorf("node not found")
 	}
 
-	// Update attributes
-	existingNode.Attributes = attributes
+	// Parse arguments - support both old and new syntax
+	var newType *models.NodeType
+	var attributes map[string]interface{}
+	var ttlSeconds int64 = -1
+	
+	i := 2
+	for i < len(args) {
+		switch strings.ToUpper(args[i]) {
+		case "TYPE":
+			if i+1 >= len(args) {
+				return nil, fmt.Errorf("TYPE parameter requires a value")
+			}
+			typeValue := models.NodeType(args[i+1])
+			newType = &typeValue
+			i += 2
+		case "ATTRIBUTES":
+			if i+1 >= len(args) {
+				return nil, fmt.Errorf("ATTRIBUTES parameter requires a JSON value")
+			}
+			if err := json.Unmarshal([]byte(args[i+1]), &attributes); err != nil {
+				return nil, fmt.Errorf("invalid attributes JSON: %v", err)
+			}
+			i += 2
+		case "TTL":
+			if i+1 >= len(args) {
+				return nil, fmt.Errorf("TTL parameter requires a numeric value")
+			}
+			ttl, err := strconv.ParseInt(args[i+1], 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid TTL value: %v", err)
+			}
+			ttlSeconds = ttl
+			i += 2
+		default:
+			// Support legacy syntax: NODE.UPDATE <graph> <id> <attributes_json> [TTL <seconds>]
+			if i == 2 {
+				// Third argument is attributes JSON in legacy format
+				if err := json.Unmarshal([]byte(args[i]), &attributes); err != nil {
+					return nil, fmt.Errorf("invalid attributes JSON: %v", err)
+				}
+				i++
+				// Check for legacy TTL format
+				if i < len(args) && i+1 < len(args) && strings.ToUpper(args[i]) == "TTL" {
+					ttl, err := strconv.ParseInt(args[i+1], 10, 64)
+					if err != nil {
+						return nil, fmt.Errorf("invalid TTL value: %v", err)
+					}
+					ttlSeconds = ttl
+					i += 2
+				}
+			} else {
+				return nil, fmt.Errorf("unknown parameter: %s", args[i])
+			}
+		}
+	}
+
+	// Validate that at least one update parameter was provided
+	if newType == nil && attributes == nil && ttlSeconds == -1 {
+		return nil, fmt.Errorf("at least one update parameter (TYPE, ATTRIBUTES, or TTL) must be provided")
+	}
+
+	// Apply updates
+	if newType != nil {
+		existingNode.Type = *newType
+	}
+	
+	if attributes != nil {
+		existingNode.Attributes = attributes
+	}
 
 	if ttlSeconds >= 0 {
 		if ttlSeconds == 0 {
@@ -186,6 +237,9 @@ func (n *NodeCommands) handleUpdate(args []string) (*protocol.Response, error) {
 			existingNode.ExpiresAt = &expiresAt
 		}
 	}
+
+	// Update the timestamp
+	existingNode.UpdatedAt = time.Now()
 
 	err = n.storage.UpdateNode(models.GraphID(graphID), existingNode)
 	if err != nil {
@@ -264,10 +318,10 @@ func (n *NodeCommands) handleList(args []string) (*protocol.Response, error) {
 		return protocol.NewArrayResponse([]string{}), nil
 	}
 
-	// Return node IDs and types
-	result := make([]string, 0, len(nodes)*2)
+	// Return node IDs and types in id:type format for consistency
+	result := make([]string, 0, len(nodes))
 	for _, node := range nodes {
-		result = append(result, string(node.ID), string(node.Type))
+		result = append(result, string(node.ID)+":"+string(node.Type))
 	}
 
 	return protocol.NewArrayResponse(result), nil
