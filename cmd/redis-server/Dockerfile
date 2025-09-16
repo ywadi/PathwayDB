@@ -12,6 +12,9 @@ RUN go mod download
 # Copy source code
 COPY . .
 
+# Run tests
+RUN go test ./tests/... -v
+
 # Build the redis-server binary
 RUN CGO_ENABLED=0 GOOS=linux go build -o /redis-server ./cmd/redis-server/main.go
 

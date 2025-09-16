@@ -12,6 +12,9 @@ RUN go mod download
 # Copy backend source code
 COPY ide/backend/ .
 
+# Run backend tests (if any exist)
+RUN if [ -d "./tests" ] || find . -name "*_test.go" | grep -q .; then go test ./... -v; fi
+
 # Build the backend-server binary
 RUN CGO_ENABLED=0 GOOS=linux go build -o /backend-server .
 

@@ -1,5 +1,7 @@
 # PathwayDB - A High-Performance Graph & Dependency Database
 
+[![Docker Build and Test](https://github.com/ywadi/PathwayDB/actions/workflows/docker-build.yml/badge.svg)](https://github.com/ywadi/PathwayDB/actions/workflows/docker-build.yml)
+
 PathwayDB is a high-performance, embeddable graph database built in Go. It uses Badger v3 as its underlying storage engine, providing a fast, transactional, and persistent graph data store. It is designed for modeling complex dependencies, such as microservices architecture, infrastructure, or any other system with interconnected components.
 
 ## Features
