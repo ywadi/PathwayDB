@@ -299,7 +299,7 @@ const App: React.FC = () => {
         <Grid container sx={{ height: '100%' }}>
           {/* Sidebar */}
           {!sidebarCollapsed && (
-            <Grid item xs={2.5} sx={{ borderRight: '1px solid #333' }}>
+            <Grid item xs={2.5} sx={{ borderRight: '1px solid #333', height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
               <Sidebar
                 graphs={graphs}
                 selectedGraph={selectedGraph}
