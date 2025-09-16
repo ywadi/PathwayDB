@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sort"
 
 	"github.com/ywadi/PathwayDB/analysis"
 	"github.com/ywadi/PathwayDB/models"
@@ -320,9 +321,27 @@ func (a *AnalysisCommands) handleCycles(args []string) (*protocol.Response, erro
 
 	// Return response based on format
 	if format == "simple" {
-		// Note: Simple format might need adjustment if multiple cycles are to be represented.
-		// For now, we'll build a response for the first detected cycle.
-		return a.buildSimpleCycleResponse(models.GraphID(graphID), cycles[0])
+		uniqueNodes := make(map[models.NodeID]bool)
+		for _, cycle := range cycles {
+			// The last node is a repeat of the first, so we can skip it.
+			for _, nodeID := range cycle[:len(cycle)-1] {
+				uniqueNodes[nodeID] = true
+			}
+		}
+
+		response := make([]string, 0, len(uniqueNodes))
+		for nodeID := range uniqueNodes {
+			node, err := a.storage.GetNode(models.GraphID(graphID), nodeID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get node %s: %v", nodeID, err)
+			}
+			response = append(response, string(node.ID)+":"+string(node.Type))
+		}
+
+		// Sort for deterministic output
+		sort.Strings(response)
+
+		return protocol.NewArrayResponse(response), nil
 	}
 
 	return a.buildDetailedCycleResponse(models.GraphID(graphID), cycles)
@@ -378,11 +397,12 @@ func (a *AnalysisCommands) buildDetailedCycleResponse(graphID models.GraphID, cy
 
 			edge, err := a.findEdgeBetweenNodes(graphID, currentNode.ID, nextNode.ID)
 			if err == nil && edge != nil {
-				pathBuilder.WriteString("->")
+				arrow := buildArrow(currentNode.ID, nextNode.ID, edge)
+				pathBuilder.WriteString(arrow)
 				pathBuilder.WriteString(string(edge.ID))
 				pathBuilder.WriteString(":")
 				pathBuilder.WriteString(string(edge.Type))
-				pathBuilder.WriteString("->")
+				pathBuilder.WriteString(arrow)
 			} else {
 				pathBuilder.WriteString("->unknown:unknown->")
 			}
@@ -583,6 +603,16 @@ func (a *AnalysisCommands) buildDetailedTraversalResponse(graphID models.GraphID
 	return protocol.NewArrayResponse(response), nil
 }
 
+// buildArrow determines the correct arrow notation based on traversal direction.
+func buildArrow(fromNode, toNode models.NodeID, edge *models.Edge) string {
+	if edge.FromNodeID == fromNode && edge.ToNodeID == toNode {
+		return "->"
+	} else if edge.ToNodeID == fromNode && edge.FromNodeID == toNode {
+		return "<-"
+	}
+	return "->" // Default for safety, though this case should be rare.
+}
+
 // buildMultiPathTraversalResponse creates response for multiple traversal paths
 func (a *AnalysisCommands) buildMultiPathTraversalResponse(allPaths []*types.TraversalResult) (*protocol.Response, error) {
 	response := make([]string, 0, len(allPaths)+1)
@@ -598,11 +628,13 @@ func (a *AnalysisCommands) buildMultiPathTraversalResponse(allPaths []*types.Tra
 
 			if i < len(path.Nodes)-1 && i < len(path.Edges) {
 				edge := path.Edges[i]
-				pathBuilder.WriteString("->")
+				arrow := buildArrow(node.ID, path.Nodes[i+1].ID, edge)
+
+				pathBuilder.WriteString(arrow)
 				pathBuilder.WriteString(string(edge.ID))
 				pathBuilder.WriteString(":")
 				pathBuilder.WriteString(string(edge.Type))
-				pathBuilder.WriteString("->")
+				pathBuilder.WriteString(arrow)
 			}
 		}
 
@@ -641,11 +673,12 @@ func (a *AnalysisCommands) buildMultiPathResponse(allPaths []*types.PathResult) 
 				edgeID := pathResult.Edges[i]
 				edge, err := a.storage.GetEdge(models.GraphID(pathResult.FromNodeID), edgeID)
 				if err == nil && edge != nil {
-					pathBuilder.WriteString("->")
+					arrow := buildArrow(node.ID, nodeDetails[i+1].ID, edge)
+					pathBuilder.WriteString(arrow)
 					pathBuilder.WriteString(string(edge.ID))
 					pathBuilder.WriteString(":")
 					pathBuilder.WriteString(string(edge.Type))
-					pathBuilder.WriteString("->")
+					pathBuilder.WriteString(arrow)
 				} else {
 					pathBuilder.WriteString("->unknown:unknown->")
 				}

@@ -183,7 +183,7 @@ func (ga *GraphAnalyzer) AllPathsTraversal(graphID models.GraphID, startNodeID m
 	visited := make(map[models.NodeID]bool)
 
 	// Start recursive path finding
-	err := ga.findAllPathsRecursive(graphID, startNodeID, visited, []models.NodeID{}, []*models.Edge{}, 0, options, &allPaths)
+	err := ga.findAllPathsRecursive(graphID, startNodeID, "", visited, []models.NodeID{}, []*models.Edge{}, 0, options, &allPaths)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +192,7 @@ func (ga *GraphAnalyzer) AllPathsTraversal(graphID models.GraphID, startNodeID m
 }
 
 // findAllPathsRecursive recursively finds all paths from current node
-func (ga *GraphAnalyzer) findAllPathsRecursive(graphID models.GraphID, nodeID models.NodeID, visited map[models.NodeID]bool,
+func (ga *GraphAnalyzer) findAllPathsRecursive(graphID models.GraphID, nodeID models.NodeID, previousEdgeID models.EdgeID, visited map[models.NodeID]bool,
 	currentPath []models.NodeID, currentEdges []*models.Edge, depth int, options *types.TraversalOptions, allPaths *[]*types.TraversalResult) error {
 
 	// Check depth limit
@@ -274,6 +274,19 @@ func (ga *GraphAnalyzer) findAllPathsRecursive(graphID models.GraphID, nodeID mo
 		connectedEdges = filteredEdges
 	}
 
+
+	// In 'both' direction, we need to filter out the edge we just came from
+	// before deciding if this is a leaf node.
+	if options.Direction == types.DirectionBoth && previousEdgeID != "" {
+		var potentialNextEdges []*models.Edge
+		for _, edge := range connectedEdges {
+			if edge.ID != previousEdgeID {
+				potentialNextEdges = append(potentialNextEdges, edge)
+			}
+		}
+		connectedEdges = potentialNextEdges
+	}
+
 	// If no outgoing edges, this is a leaf node - save the current path
 	if len(connectedEdges) == 0 {
 		if len(currentPath) > 0 {
@@ -318,12 +331,52 @@ func (ga *GraphAnalyzer) findAllPathsRecursive(graphID models.GraphID, nodeID mo
 			}
 		}
 
-		// Continue recursion if next node is valid and not visited
-		if nextNodeID != "" && !visited[nextNodeID] {
+		// Continue recursion if next node is valid
+		if nextNodeID != "" {
 			newEdges := append(currentEdges, edge)
-			err := ga.findAllPathsRecursive(graphID, nextNodeID, visited, currentPath, newEdges, depth+1, options, allPaths)
-			if err != nil {
-				return err
+
+			// If the neighbor is already in the path, we have a cycle.
+			if visited[nextNodeID] {
+				cycleStartIndex := -1
+				for i, pathNodeID := range currentPath {
+					if pathNodeID == nextNodeID {
+						cycleStartIndex = i
+						break
+					}
+				}
+
+				if cycleStartIndex != -1 {
+					// Construct the cycle path and edges
+					cyclePath := currentPath[cycleStartIndex:]
+					cycleEdges := newEdges[cycleStartIndex:]
+
+					// Get node objects for the path
+					pathNodes := make([]*models.Node, len(cyclePath))
+					for i, pathNodeID := range cyclePath {
+						pathNode, nodeErr := ga.storage.GetNode(graphID, pathNodeID)
+						if nodeErr != nil {
+							return fmt.Errorf("failed to get cycle path node %s: %w", pathNodeID, nodeErr)
+						}
+						pathNodes[i] = pathNode
+					}
+
+					// Add the closing node to complete the cycle visualization
+					pathNodes = append(pathNodes, pathNodes[0])
+					cyclePath = append(cyclePath, cyclePath[0])
+
+					*allPaths = append(*allPaths, &types.TraversalResult{
+						Nodes:    pathNodes,
+						Edges:    cycleEdges,
+						Path:     cyclePath,
+						Distance: len(cyclePath) - 1,
+					})
+				}
+			} else {
+				// Continue recursion if it's not a cycle
+				err := ga.findAllPathsRecursive(graphID, nextNodeID, edge.ID, visited, currentPath, newEdges, depth+1, options, allPaths)
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -719,8 +772,7 @@ func (ga *GraphAnalyzer) FindAllCycles(graphID models.GraphID, options *types.Tr
 	for _, node := range allNodes {
 		path := []models.NodeID{node.ID}
 		blocked := make(map[models.NodeID]bool)
-		closed := make(map[models.NodeID]bool)
-		cycles, err := ga.findCyclesRecursive(graphID, node.ID, node.ID, path, blocked, closed, &allCycles, options)
+		cycles, err := ga.findCyclesRecursive(graphID, node.ID, node.ID, path, blocked, &allCycles, options)
 		if err != nil {
 			return nil, err
 		}
@@ -775,9 +827,10 @@ func cycleToString(path []models.NodeID) string {
 	return strings.Join(ids, "->")
 }
 
-func (ga *GraphAnalyzer) findCyclesRecursive(graphID models.GraphID, startNode, currentNode models.NodeID, path []models.NodeID, blocked, closed map[models.NodeID]bool, allCycles *[][]models.NodeID, options *types.TraversalOptions) ([][]models.NodeID, error) {
+func (ga *GraphAnalyzer) findCyclesRecursive(graphID models.GraphID, startNode, currentNode models.NodeID, path []models.NodeID, blocked map[models.NodeID]bool, allCycles *[][]models.NodeID, options *types.TraversalOptions) ([][]models.NodeID, error) {
 	var newCycles [][]models.NodeID
 	blocked[currentNode] = true
+	defer func() { blocked[currentNode] = false }() // Unblock node on backtrack
 
 	connectedEdges, err := ga.storage.GetOutgoingEdges(graphID, currentNode)
 	if err != nil {
@@ -808,7 +861,7 @@ func (ga *GraphAnalyzer) findCyclesRecursive(graphID models.GraphID, startNode, 
 			newCycles = append(newCycles, cycle)
 		} else if !blocked[neighbor] {
 			newPath := append(path, neighbor)
-			cycles, err := ga.findCyclesRecursive(graphID, startNode, neighbor, newPath, blocked, closed, allCycles, options)
+			cycles, err := ga.findCyclesRecursive(graphID, startNode, neighbor, newPath, blocked, allCycles, options)
 			if err != nil {
 				return nil, err
 			}
@@ -816,12 +869,6 @@ func (ga *GraphAnalyzer) findCyclesRecursive(graphID models.GraphID, startNode, 
 		}
 	}
 
-	if closed[currentNode] {
-		// unblock
-		delete(blocked, currentNode)
-	} else {
-		closed[currentNode] = true
-	}
 
 	return newCycles, nil
 }

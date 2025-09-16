@@ -3,6 +3,9 @@
 # PathwayDB IDE Startup Script
 set -e
 
+# Change to the directory where the script is located
+cd "$(dirname "$0")"
+
 echo "🚀 Starting PathwayDB IDE..."
 
 # Check if Node.js is installed
@@ -70,9 +73,12 @@ echo "Press Ctrl+C to stop all services"
 cleanup() {
     echo ""
     echo "🛑 Stopping PathwayDB IDE services..."
-    kill $REDIS_PID 2>/dev/null || true
-    kill $BACKEND_PID 2>/dev/null || true
-    kill $FRONTEND_PID 2>/dev/null || true
+    # Use pkill to reliably find and kill processes by their command line.
+    pkill -f "cmd/redis-server/main.go" 2>/dev/null || true
+    pkill -f "backend/main.go" 2>/dev/null || true
+    pkill -f "react-scripts start" 2>/dev/null || true
+    sleep 1 # Give processes a moment to shut down
+    echo "✅ Services stopped."
     exit 0
 }
 
