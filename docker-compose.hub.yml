@@ -1,0 +1,34 @@
+services:
+  pathwaydb-redis:
+    image: yousefwadi/pathwaydb-redis:latest
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - ./data:/app/data
+    networks:
+      - pathwaydb-net
+
+  backend:
+    image: yousefwadi/pathwaydb-backend:latest
+    depends_on:
+      - pathwaydb-redis
+    ports:
+      - "${WEBSOCKET_PORT:-8081}:8081"
+    environment:
+      - REDIS_ADDR=pathwaydb-redis:6379
+      - WEBSOCKET_ADDR=:8081
+    networks:
+      - pathwaydb-net
+
+  frontend:
+    image: yousefwadi/pathwaydb-frontend:latest
+    depends_on:
+      - backend
+    ports:
+      - "${PORT:-3000}:80"
+    networks:
+      - pathwaydb-net
+
+networks:
+  pathwaydb-net:
+    driver: bridge
