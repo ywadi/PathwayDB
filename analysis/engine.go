@@ -274,21 +274,21 @@ func (ga *GraphAnalyzer) findAllPathsRecursive(graphID models.GraphID, nodeID mo
 		connectedEdges = filteredEdges
 	}
 
-
 	// In 'both' direction, we need to filter out the edge we just came from
 	// before deciding if this is a leaf node.
+	var edgesToExplore []*models.Edge
 	if options.Direction == types.DirectionBoth && previousEdgeID != "" {
-		var potentialNextEdges []*models.Edge
 		for _, edge := range connectedEdges {
 			if edge.ID != previousEdgeID {
-				potentialNextEdges = append(potentialNextEdges, edge)
+				edgesToExplore = append(edgesToExplore, edge)
 			}
 		}
-		connectedEdges = potentialNextEdges
+	} else {
+		edgesToExplore = connectedEdges
 	}
 
-	// If no outgoing edges, this is a leaf node - save the current path
-	if len(connectedEdges) == 0 {
+	// If no edges to explore, this is a leaf node - save the current path
+	if len(edgesToExplore) == 0 {
 		if len(currentPath) > 0 {
 			// Convert path to nodes
 			pathNodes := make([]*models.Node, len(currentPath))
@@ -311,7 +311,7 @@ func (ga *GraphAnalyzer) findAllPathsRecursive(graphID models.GraphID, nodeID mo
 	}
 
 	// Explore each connected edge
-	for _, edge := range connectedEdges {
+	for _, edge := range edgesToExplore {
 		// Determine next node
 		var nextNodeID models.NodeID
 		switch options.Direction {

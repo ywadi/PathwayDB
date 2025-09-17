@@ -113,7 +113,12 @@ func TestTraversalCommands(t *testing.T) {
 		// Expect two paths: b->c and b<-a. No trivial b->a->b path.
 		expected := []string{"2", "b:service->b-c:writes_to->c:database", "b:service<-a-b:calls<-a:service"}
 		values := resp.ArrayValue
-		sort.Strings(values[1:]) // Sort paths for stable comparison
+		
+		// Check if we have enough elements before slicing
+		if len(values) > 1 {
+			sort.Strings(values[1:]) // Sort paths for stable comparison
+		}
+		
 		if !reflect.DeepEqual(values, expected) {
 			t.Errorf("Expected response %v, got %v", expected, values)
 		}

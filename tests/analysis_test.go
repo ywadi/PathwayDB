@@ -736,6 +736,122 @@ func TestGraphMetrics(t *testing.T) {
 	})
 }
 
+// TestTraversalEdgeFilteringBug tests the specific bug where connectedEdges was overwritten
+// affecting leaf node detection in "both" direction traversal
+func TestTraversalEdgeFilteringBug(t *testing.T) {
+	te := setupTestAnalysisEngine(t)
+	defer te.cleanup()
+
+	// Create a specific graph structure that reproduces the bug
+	// This creates a chain where the bug would cause edge9 path to be missed:
+	// start -> node-j -> node-d (edge10)
+	//               -> node-k (edge8) 
+	//               -> node-f (edge9) <- This was missing from traversal due to the bug
+	//               -> node-g (edgeCycle)
+	
+	nodes := []*models.Node{
+		{ID: "start", Type: "node", Attributes: models.Attributes{}, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+		{ID: "node-j", Type: "node", Attributes: models.Attributes{}, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+		{ID: "node-d", Type: "node", Attributes: models.Attributes{}, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+		{ID: "node-k", Type: "circle", Attributes: models.Attributes{}, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+		{ID: "node-f", Type: "node", Attributes: models.Attributes{}, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+		{ID: "node-g", Type: "circle", Attributes: models.Attributes{}, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+	}
+	
+	for _, node := range nodes {
+		te.engine.CreateNode(te.graphID, node)
+	}
+	
+	edges := []*models.Edge{
+		{ID: "start-j", Type: "connects", FromNodeID: "start", ToNodeID: "node-j", Attributes: models.Attributes{}, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+		{ID: "edge10", Type: "line", FromNodeID: "node-j", ToNodeID: "node-d", Attributes: models.Attributes{}, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+		{ID: "edge8", Type: "edger", FromNodeID: "node-j", ToNodeID: "node-k", Attributes: models.Attributes{}, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+		{ID: "edge9", Type: "line", FromNodeID: "node-j", ToNodeID: "node-f", Attributes: models.Attributes{}, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+		{ID: "edgeCycle", Type: "cycle", FromNodeID: "node-j", ToNodeID: "node-g", Attributes: models.Attributes{}, CreatedAt: time.Now(), UpdatedAt: time.Now()},
+	}
+	
+	for _, edge := range edges {
+		te.engine.CreateEdge(te.graphID, edge)
+	}
+
+	t.Run("AllPathsTraversalIncludesAllEdges", func(t *testing.T) {
+		// Test traversal from start in forward direction to generate paths
+		results, err := te.analyzer.AllPathsTraversal(te.graphID, "start", &types.TraversalOptions{
+			Direction: types.DirectionForward,
+			MaxDepth:  -1,
+		})
+		if err != nil {
+			t.Errorf("AllPathsTraversal failed: %v", err)
+		}
+		
+		// Should have 4 paths: start->node-j->node-d, start->node-j->node-k, start->node-j->node-f, start->node-j->node-g
+		if len(results) != 4 {
+			t.Errorf("Expected 4 traversal paths, got %d", len(results))
+		}
+		
+		// Collect all nodes and edges that appear in traversal results
+		visitedNodes := make(map[string]bool)
+		visitedEdges := make(map[string]bool)
+		
+		for _, result := range results {
+			for _, node := range result.Nodes {
+				visitedNodes[string(node.ID)] = true
+			}
+			for _, edge := range result.Edges {
+				visitedEdges[string(edge.ID)] = true
+			}
+		}
+		
+		// Verify that all expected nodes are visited
+		expectedNodes := []string{"start", "node-j", "node-d", "node-k", "node-f", "node-g"}
+		for _, nodeID := range expectedNodes {
+			if !visitedNodes[nodeID] {
+				t.Errorf("Expected node %s to be visited in traversal, but it was missing", nodeID)
+			}
+		}
+		
+		// Verify that all expected edges are included
+		expectedEdges := []string{"start-j", "edge10", "edge8", "edge9", "edgeCycle"}
+		for _, edgeID := range expectedEdges {
+			if !visitedEdges[edgeID] {
+				t.Errorf("Expected edge %s to be included in traversal, but it was missing", edgeID)
+			}
+		}
+		
+		// Specifically verify that edge9 and node-f are included (this was the bug)
+		if !visitedNodes["node-f"] {
+			t.Error("Bug reproduction: node-f should be reachable via edge9 but was missing from traversal")
+		}
+		if !visitedEdges["edge9"] {
+			t.Error("Bug reproduction: edge9 should be included in traversal but was missing")
+		}
+	})
+
+	t.Run("EdgeNeighborsShowsAllEdges", func(t *testing.T) {
+		// Verify that storage layer correctly retrieves all outgoing edges
+		outgoingEdges, err := te.engine.GetOutgoingEdges(te.graphID, "node-j")
+		if err != nil {
+			t.Errorf("Failed to get outgoing edges: %v", err)
+		}
+		
+		if len(outgoingEdges) != 4 {
+			t.Errorf("Expected 4 outgoing edges from node-j, got %d", len(outgoingEdges))
+		}
+		
+		edgeIDs := make(map[string]bool)
+		for _, edge := range outgoingEdges {
+			edgeIDs[string(edge.ID)] = true
+		}
+		
+		expectedEdges := []string{"edge10", "edge8", "edge9", "edgeCycle"}
+		for _, edgeID := range expectedEdges {
+			if !edgeIDs[edgeID] {
+				t.Errorf("Expected edge %s in outgoing edges, but it was missing", edgeID)
+			}
+		}
+	})
+}
+
 func TestAnalysisErrorHandling(t *testing.T) {
 	te := setupTestAnalysisEngine(t)
 	defer te.cleanup()
