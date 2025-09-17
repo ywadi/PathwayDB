@@ -26,6 +26,10 @@ WORKDIR /app
 # Copy the static binary from the builder stage
 COPY --from=builder /backend-server .
 
+# Copy documentation files
+COPY docs/ /app/docs/
+COPY README.md /app/README.md
+
 # Create a non-root user
 RUN addgroup -S appgroup && adduser -S -G appgroup appuser
 RUN chown -R appuser:appgroup /app
